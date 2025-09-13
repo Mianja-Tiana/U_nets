@@ -6,23 +6,44 @@ This project provides a clean implementation of the **U-Net architecture** for i
 ## Project Structure
 U-Net-Project/
 │
+
 ├── README.md
+
 ├── requirements.txt
+
 ├── main.py
+
 │
+
 ├── models/
+
 │   └── unet.py
+
 │
+
 ├── train/
+
 │   ├── train_utils.py
+
 │   └── trainer.py
+
 │
+
 ├── test/
-│   └── test_utils.py
+
 │
+
+└── test_utils.py
+
+│
+
 ├── data/
+
 │   └── dataset.py
+
 │
+
 └── utils/
+
     └── helpers.py
 
