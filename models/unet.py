@@ -1,59 +1,85 @@
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 
-# --- Double Convolution Block ---
 class DoubleConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(DoubleConv, self).__init__()
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-        )
+    def __init__ (self,in_channels,out_channels):
+        super(DoubleConv,self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=0)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=0)
+        self.relu2 = nn.ReLU(inplace=True)
 
-    def forward(self, x):
-        return self.double_conv(x)
+        torch.nn.init.normal_(self.conv1.weight, mean=0, std=np.sqrt(2 / (3 * 3 * in_channels)))
+        torch.nn.init.normal_(self.conv2.weight, mean=0, std=np.sqrt(2 / (3 * 3 * out_channels)))
 
-# --- U-Net Model ---
-class UNet(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1):
-        super(UNet, self).__init__()
-        self.encoder1 = DoubleConv(in_channels, 64)
-        self.encoder2 = DoubleConv(64, 128)
-        self.encoder3 = DoubleConv(128, 256)
-        self.encoder4 = DoubleConv(256, 512)
-        self.encoder5 = DoubleConv(512, 1024)
+    def forward(self,x):
+        x = self.conv1(x)
+        x = self.relu1(x)
+        x = self.conv2(x)
+        x = self.relu2(x)
+        return x
 
-        self.pool = nn.MaxPool2d(2)
+class Down(nn.Module):
+    def __init__(self, in_channels,out_channels):
+        super(Down,self).__init__()
+        self.down = nn.MaxPool2d(2)
+        self.conv = DoubleConv(in_channels,out_channels)
+        
+    def forward(self,x):
+        x = self.down(x)
+        x = self.conv(x)
+        return x
+    
+class Up(nn.Module):
+    def __init__(self,in_channels,out_channels):
+        super(Up,self).__init__()
+        self.up = nn.ConvTranspose2d(in_channels,in_channels//2,kernel_size=2,stride=2)
+        self.conv = DoubleConv(in_channels,out_channels)
+        
+    def forward(self,x,res):
+        x = self.up(x)
+        res = v2.CenterCrop(x.size()[-2:])(res)
+        x = torch.cat([x,res],dim=1)
+        x = self.conv(x)
+        return x
+    
+    class UNet(nn.Module):
+        def __init__(self,n_channels=1,n_classes=2):
+            super(UNet,self).__init__()
+            
+            # Contracting path (encoder)
+            self.inc   = DoubleConv(n_channels,64)
+            self.down1 = Down(64,128)
+            self.down2 = Down(128,256)
+            self.down3 = Down(256,512)
+            self.down4 = Down(512,1024)
 
-        self.upconv4 = nn.ConvTranspose2d(1024, 512, kernel_size=2, stride=2)
-        self.decoder4 = DoubleConv(1024, 512)
-        self.upconv3 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
-        self.decoder3 = DoubleConv(512, 256)
-        self.upconv2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-        self.decoder2 = DoubleConv(256, 128)
-        self.upconv1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.decoder1 = DoubleConv(128, 64)
+            # Expansive path (decoder)
+            self.up1 = Up(1024,512)
+            self.up2 = Up(512,256)
+            self.up3 = Up(256,128)
+            self.up4 = Up(128,64)
 
-        self.conv_last = nn.Conv2d(64, out_channels, kernel_size=1)
+            #Output layer
+            self.outc = nn.Conv2d(64,n_classes,kernel_size=1)
 
-    def forward(self, x):
-        enc1 = self.encoder1(x)
-        enc2 = self.encoder2(self.pool(enc1))
-        enc3 = self.encoder3(self.pool(enc2))
-        enc4 = self.encoder4(self.pool(enc3))
-        enc5 = self.encoder5(self.pool(enc4))
-
-        dec4 = self.upconv4(enc5)
-        dec4 = self.decoder4(torch.cat((enc4, dec4), dim=1))
-        dec3 = self.upconv3(dec4)
-        dec3 = self.decoder3(torch.cat((enc3, dec3), dim=1))
-        dec2 = self.upconv2(dec3)
-        dec2 = self.decoder2(torch.cat((enc2, dec2), dim=1))
-        dec1 = self.upconv1(dec2)
-        dec1 = self.decoder1(torch.cat((enc1, dec1), dim=1))
-
-        return torch.sigmoid(self.conv_last(dec1))
+        def forward(self,x):
+            # contracting path 
+            x1 = self.inc(x)
+            x2 = self.down1(x1)
+            x3 = self.down2(x2)
+            x4 = self.down3(x3)
+            x5 = self.down4(x4)
+            
+            #expansive path 
+            x = self.up1(x5, x4)
+            x = self.up2(x, x3)
+            x = self.up3(x, x2)
+            x = self.up4(x, x1)
+                
+            # Output
+            output = self.outc(x)
+            return output   
